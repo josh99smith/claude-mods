@@ -1,0 +1,6 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "josh99smith" },
+  "description": "Claude Code mods for every project.",
+  "plugins": [{ "name": "next-steps", "source": "./plugins/next-steps", "description": "Suggests next steps after every prompt and keeps them in a to-do list by category: a panel to click, commands, or a board in the Claude app." }]
+}
