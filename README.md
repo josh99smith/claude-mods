@@ -24,14 +24,28 @@ claude plugin install next-steps@claude-mods --scope user
 
 or inside Claude Code: `/plugin install next-steps --marketplace josh99smith/claude-mods`, then pick user scope.
 
-For one project's sessions (cloud ones too), add to its `.claude/settings.json`:
+### Every cloud session
+
+Cloud containers skip plugin marketplaces (`SKIP_PLUGIN_MARKETPLACE`) and adopt a plugin folder only from
+`~/.claude/skills/<name>`, so install it in the cloud environment's **setup script** (environment menu in the session's
+title bar → Edit → Setup script), which runs before Claude Code starts:
+
+```
+git clone --depth 1 https://github.com/josh99smith/claude-mods /tmp/claude-mods \
+  && mkdir -p ~/.claude/skills && cp -r /tmp/claude-mods/plugins/next-steps ~/.claude/skills/ || true
+```
+
+This repo is private: the clone works only where the session can reach it. If the setup log shows it refused, add
+claude-mods to the session or make the repo public.
+
+### One project, on a computer
+
+Add to its `.claude/settings.json` (a local Claude Code installs it from the marketplace):
 
 ```json
 "extraKnownMarketplaces": { "claude-mods": { "source": { "source": "github", "repo": "josh99smith/claude-mods" } } },
 "enabledPlugins": { "next-steps@claude-mods": true }
 ```
-
-A cloud session can fetch this private repo only if the session has access to it.
 
 ## Develop
 
