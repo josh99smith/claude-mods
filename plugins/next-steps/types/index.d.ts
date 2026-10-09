@@ -3,6 +3,6 @@ export type List = { next: number; items: Item[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    'next-steps': { list: List; isOn: boolean; showDone: boolean; category: string }
+    'next-steps': { list: List; isOn: boolean; showDone: boolean; category: string; tasks: Record<string, string> }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "next-steps",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Suggests next steps after every prompt and keeps them in a to-do list by category, in a panel you can click (/todo) or drive with commands.",
   "author": {
     "name": "josh99smith"

@@ -17,6 +17,8 @@ const listAtom = atom({ plugin: 'next-steps', key: 'list' } as const, EMPTY)
 const onAtom = atom({ plugin: 'next-steps', key: 'isOn' } as const, true)
 const showDoneAtom = atom({ plugin: 'next-steps', key: 'showDone' } as const, false)
 const categoryAtom = atom({ plugin: 'next-steps', key: 'category' } as const, 'General')
+/** Claude's own tasks this session (TaskCreate), id → title, so a TaskUpdate that finishes one can be matched. */
+const tasksAtom = atom({ plugin: 'next-steps', key: 'tasks' } as const, {} as Record<string, string>)
 
 const listKey = (cwd: string) => `list:${cwd}`
 const BOARD_FILE = '.claude/next-steps.json'
@@ -45,6 +47,7 @@ function boardInstruction(url: string): string {
     'id (number), category, text, done (boolean), at (ISO time)). When you have finished the request:',
     '1. Read the board: ArtifactData list on `items` (load ArtifactData with ToolSearch if needed).',
     '   Items the user ticked there are done; never reopen them.',
+    '   As you finish an open item, even mid-turn, update it {done: true} on the board right away.',
     '2. Suggest the next steps: end your reply with a short "Suggested next steps" section, one',
     '   line each, grouped under a short category (reuse the board\'s categories where they fit: e.g.',
     '   Bugs, Features, Tests, Docs, Refactor, Ops, Questions). Concrete steps the user or a later',
@@ -144,6 +147,52 @@ function instruction(list: List): string {
   ].join('\n')
 }
 
+const words = (s: string) =>
+  s.toLowerCase().replace(/#\d+/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * The open item a task of Claude's stands for: one whose "#id" its title names,
+ * else one with the same words, or whose words hold the other's whole (the
+ * shorter at least three words, so "fix it" never ticks "fix the kickoff camera").
+ */
+export function matchItem(list: List, title: string): Item | undefined {
+  const open = list.items.filter(i => !i.done)
+  for (const m of title.matchAll(/#(\d+)\b/g)) {
+    const hit = open.find(i => i.id === Number(m[1]))
+    if (hit) return hit
+  }
+  const t = words(title)
+  if (!t) return undefined
+  const exact = open.find(i => words(i.text) === t)
+  if (exact) return exact
+  return open.find(i => {
+    const w = words(i.text)
+    const [short, long] = w.length < t.length ? [w, t] : [t, w]
+    return short.split(' ').length >= 3 && ` ${long} `.includes(` ${short} `)
+  })
+}
+
+/**
+ * Ticks the open items that tasks Claude just completed stand for. Without a
+ * board that is the list itself; with one, the board is Claude's to write, so
+ * Claude is told which finished task to tick there.
+ */
+async function tickFor($: EngineInterface, titles: string[]): Promise<string | undefined> {
+  if (titles.length === 0) return undefined
+  const board = await boardUrl($)
+  if (board) {
+    const names = titles.map(t => `"${t}"`).join(', ')
+    return `next-steps: if ${names} is an open item on the to-do board (${board}), mark it done there now (ArtifactData update {done: true}).`
+  }
+  const list = await fromStore($)
+  const ids = titles.map(t => matchItem(list, t)?.id).filter((n): n is number => n !== undefined)
+  if (ids.length === 0) return undefined
+  await edit($, l => {
+    for (const i of l.items) if (ids.includes(i.id)) i.done = true
+  })
+  return undefined
+}
+
 const now = async ($: EngineInterface) => new Date(await $.clock.now()).toISOString()
 
 export const register: Register = on => {
@@ -217,6 +266,39 @@ export const register: Register = on => {
     })
     const ids = (ns: number[]) => (ns.length ? ns.map(n => `#${n}`).join(', ') : 'nothing')
     return { result: `Added ${ids(added)}; marked done ${ids(finished)}.` }
+  })
+
+  // Claude's own task list: completing a task (TaskUpdate, or a todo in
+  // TodoWrite) ticks the open item it stands for, so the checklist follows the work.
+  on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
+    const ran = await next(e)
+    const task = ran.deny === undefined && !ran.isError ? (ran.result as { task?: { id?: string } } | undefined)?.task : undefined
+    if (task?.id) await update($, tasksAtom, t => ({ ...t, [task.id as string]: e.subject }))
+    return ran
+  })
+
+  on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
+    const ran = await next(e)
+    if (ran.deny !== undefined || ran.isError) return ran
+    const tasks = await read($, tasksAtom)
+    const title = e.subject ?? tasks[e.taskId]
+    if (e.subject) await update($, tasksAtom, t => ({ ...t, [e.taskId]: e.subject as string }))
+    if (e.status !== 'completed' || !title) return ran
+    const note = await tickFor($, [title])
+    return note ? { ...ran, context: [...(ran.context ?? []), note] } : ran
+  })
+
+  on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
+    const ran = await next(e)
+    if (ran.deny !== undefined || ran.isError) return ran
+    const was = new Set(
+      ((ran.result as { oldTodos?: { content: string; status: string }[] } | undefined)?.oldTodos ?? [])
+        .filter(t => t.status === 'completed')
+        .map(t => t.content),
+    )
+    const titles = e.todos.filter(t => t.status === 'completed' && !was.has(t.content)).map(t => t.content)
+    const note = await tickFor($, titles)
+    return note ? { ...ran, context: [...(ran.context ?? []), note] } : ran
   })
 
   on('command.run', { command: 'todo' }, async ($, e) => {

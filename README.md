@@ -13,6 +13,13 @@ After every prompt, Claude ends its reply with suggested next steps, grouped by 
 
 Without a board the list is kept per project on the machine running the session.
 
+**It ticks itself.** Claude marks an item done the moment it finishes it, mid-turn, not only at the end. And when
+Claude works through its own task list (TaskCreate/TaskUpdate, or TodoWrite), completing a task ticks the open item
+it stands for: one whose `#id` the task names, or with the same words. On a board, Claude is told to tick it there.
+
+A cloud session's list lives in its container, so it never reaches your computer's list: give the project a board
+(above) to have cloud and local sessions share one list.
+
 ## Install
 
 On your computer, for every project (this repo is private, so the machine needs GitHub access to it: `gh auth login` or an SSH key):
@@ -23,6 +30,20 @@ claude plugin install next-steps@claude-mods --scope user
 ```
 
 or inside Claude Code: `/plugin install next-steps --marketplace josh99smith/claude-mods`, then pick user scope.
+
+### Getting updates on your computer
+
+An installed plugin runs the copy made at install time; a new version reaches it only through an update. Each change
+to the mod bumps `version` in `plugins/next-steps/.claude-plugin/plugin.json`. To take it:
+
+```
+claude plugin marketplace update claude-mods
+claude plugin update next-steps@claude-mods
+```
+
+then `/reload-plugins` in an open session (or start a new one). To have it happen by itself, turn on auto-update for
+the marketplace: `/plugin` → Marketplaces → claude-mods → Enable auto-update (third-party marketplaces start with it
+off); Claude Code then pulls new versions when it starts.
 
 ### Every cloud session
 

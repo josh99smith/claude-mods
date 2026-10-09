@@ -136,3 +136,35 @@ test('with a board named in the project, prompts point at the board and /todo li
   expect((await todo($, '')).text).toContain('https://claude.ai/artifact/abc')
   expect((await todo($, 'off')).text).toContain('tracking is off')
 })
+
+test("Claude completing its own tasks ticks the items they stand for", async ($, on) => {
+  mock.store(on)
+  mock.clock(on, { now: 0 })
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('fs.read', () => ({ deny: 'ENOENT' }) as never)
+  // The engine's own answers for the task tools, as core gives them.
+  on('tool.call', { tool: 'TaskCreate' }, () => ({ result: { task: { id: '7', subject: 'x' } } }) as never)
+  on('tool.call', { tool: 'TaskUpdate' }, (_$, e) => ({ result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }) as never)
+  on('tool.call', { tool: 'TodoWrite' }, () => ({ result: { oldTodos: [], newTodos: [] } }) as never)
+  await todo($, 'add Bugs: Fix the kickoff camera')
+  await todo($, 'add Docs: Write the README')
+  await todo($, 'add Tests: Cover the punt return')
+  await todo($, 'add Bugs: Fix it')
+  const call = (tool: string, input: Record<string, unknown>) => $.tool.call({ tool, ...input } as never)
+  await call('TaskCreate', { subject: 'Work on #2: the README', description: '' })
+  await call('TaskUpdate', { taskId: '7', status: 'in_progress' })
+  expect((await todo($, 'list')).text).toContain('Write the README')
+  await call('TaskUpdate', { taskId: '7', status: 'completed' })
+  await call('TodoWrite', {
+    todos: [
+      { content: 'fix the kickoff camera.', status: 'completed', activeForm: '' },
+      { content: 'cover the punt return', status: 'in_progress', activeForm: '' },
+      { content: 'fix', status: 'completed', activeForm: '' },
+    ],
+  })
+  const shown = (await todo($, 'all')).text ?? ''
+  expect(shown).toContain('- [x] #1 Fix the kickoff camera')
+  expect(shown).toContain('- [x] #2 Write the README')
+  expect(shown).toContain('- [ ] #3 Cover the punt return')
+  expect(shown).toContain('- [ ] #4 Fix it')
+})
